@@ -36,13 +36,18 @@ logFilePath = args[3];
 if (args.Count() == 5 && args[4] == "-verify") doFullMd5Check = true;
 
 // create log file if doesn't exist
-try {
-    if (!File.Exists(logFilePath)) {
-        File.Create(logFilePath).Dispose();
-        LogOperation(Operation.CREATE, $"Created log file {logFilePath}");
+bool _isOperationSuccessfull = false;
+while (!_isOperationSuccessfull) {
+    try {
+        if (!File.Exists(logFilePath)) {
+            File.Create(logFilePath).Dispose();
+            LogOperation(Operation.CREATE, $"Created log file {logFilePath}");
+        }
+    } catch {
+        LogOperation(Operation.FAIL, "Creating log file failed, retrying in 3s.");
+        Thread.Sleep(3000);
     }
-} catch (IOException ex) {
-    Console.WriteLine(ex.ToString());
+    _isOperationSuccessfull = true;
 }
 
 //
@@ -55,7 +60,7 @@ while (true) {
     destinationFileMap = ScanFiles(true);
     bool wasSomethingDone = false;
 
-    // source -> destination
+    // check files
     foreach (string filePath in updatedSourceFileMap.Keys) {
         string relativePath = Path.GetRelativePath(sourceFolderPath, filePath);
         string targetPath = Path.Combine(destinationFolderPath, relativePath);
@@ -80,40 +85,52 @@ while (true) {
 
         // copy file
         if (shouldCopy) {
-            try {
-                if (!Directory.Exists(Path.GetDirectoryName(targetPath)!)) {
-                    Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-                    LogOperation(Operation.CREATE, $"Created folder \"{Path.GetDirectoryName(targetPath)}\".");
+            bool isOperationSuccessfull = false;
+            while (!isOperationSuccessfull) {
+                try {
+                    if (!Directory.Exists(Path.GetDirectoryName(targetPath)!)) {
+                        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+                        LogOperation(Operation.CREATE, $"Created folder \"{Path.GetDirectoryName(targetPath)}\".");
+                    }
+                    if (!File.Exists(targetPath)) {
+                        File.Copy(filePath, targetPath);
+                        LogOperation(Operation.COPY, $"Copied file \"{filePath}\" to \"{targetPath}\".");
+                    } else {
+                        File.Copy(filePath, targetPath, true);
+                        LogOperation(Operation.UPDATE, $"Updated file \"{targetPath}\".");
+                    }
+                } catch {
+                    LogOperation(Operation.FAIL, "Creating folder or copying file failed, retrying in 3s.");
+                    Thread.Sleep(3000);
                 }
-                if (!File.Exists(targetPath)) {
-                    File.Copy(filePath, targetPath);
-                    LogOperation(Operation.COPY, $"Copied file \"{filePath}\" to \"{targetPath}\".");
-                } else {
-                    File.Copy(filePath, targetPath, true);
-                    LogOperation(Operation.UPDATE, $"Updated file \"{targetPath}\".");
-                }
-            } catch (Exception ex) {
-                Console.WriteLine(ex.ToString());
+                isOperationSuccessfull = true;
             }
             if (!wasSomethingDone) wasSomethingDone = true;
         }
     }
 
-    // destination -> source
+    // delete files
     foreach (string filePath in destinationFileMap.Keys) {
         string relativePath = Path.GetRelativePath(destinationFolderPath, filePath);
         string targetPath = Path.Combine(sourceFolderPath, relativePath);
         // if doesn't exist in source, but exists in destination
         if (!updatedSourceFileMap.ContainsKey(targetPath)) {
-            try {
-                File.Delete(filePath);
-                LogOperation(Operation.DELETE, $"Deleted file \"{filePath}\".");
-                if (!wasSomethingDone) wasSomethingDone = true;
-            } catch (Exception ex) {
-                Console.WriteLine(ex.ToString());
+            bool isOperationSuccessfull = false;
+            while (!isOperationSuccessfull) {
+                try {
+                    File.Delete(filePath);
+                    LogOperation(Operation.DELETE, $"Deleted file \"{filePath}\".");
+                    if (!wasSomethingDone) wasSomethingDone = true;
+                } catch {
+                    LogOperation(Operation.FAIL, "Deleting folder or file failed, retrying in 3s.");
+                    Thread.Sleep(3000);
+                }
+                isOperationSuccessfull = true;
             }
         }
     }
+
+    // also update empty folders
 
     sourceFileMap = new Dictionary<string, FileData>(updatedSourceFileMap);
 
@@ -127,44 +144,60 @@ void LogOperation(Operation operation, string log) {
     string logMessage = $"[{DateTimeOffset.Now.ToString("yyyy-MM-dd'T'HH:mm:ss.fffzzz'Z'")}][{operation}] {log}";
 
     Console.WriteLine(logMessage);
-    try {
-        using (StreamWriter logFile = new StreamWriter(logFilePath, true)) {
-            logFile.WriteLine(logMessage);
+    bool isOperationSuccessfull = false;
+    while (!isOperationSuccessfull) {
+        try {
+            using (StreamWriter logFile = new StreamWriter(logFilePath, true)) {
+                logFile.WriteLine(logMessage);
+            }
+        } catch {
+            Console.WriteLine("Writing to log file failed, retrying in 3s.");
+            Thread.Sleep(3000);
         }
-    } catch (IOException ex) {
-        Console.WriteLine(ex.ToString());
+        isOperationSuccessfull = true;
     }
 }
 
 Dictionary<string, FileData> ScanFiles(bool isTargetDestination) {
     var result = new Dictionary<string, FileData>();
-    try {
-        foreach (string filePath in Directory.GetFiles(args[Convert.ToInt16(isTargetDestination)], "*", SearchOption.AllDirectories)) {
-            var fileInfo = new FileInfo(filePath);
-            var md5 = "";
-            if (doFullMd5Check) md5 = GetMd5(filePath);
-            var fileData = new FileData(fileInfo.LastWriteTime, fileInfo.Length, md5);
-            result[filePath] = fileData;
+    bool isOperationSuccessfull = false;
+    while (!isOperationSuccessfull) {
+        try {
+            foreach (string filePath in Directory.GetFiles(args[Convert.ToInt16(isTargetDestination)], "*", SearchOption.AllDirectories)) {
+                var fileInfo = new FileInfo(filePath);
+                var md5 = "";
+                if (doFullMd5Check) md5 = GetMd5(filePath);
+                var fileData = new FileData(fileInfo.LastWriteTime, fileInfo.Length, md5);
+                result[filePath] = fileData;
+            }
+        } catch {
+            LogOperation(Operation.FAIL, "Getting file info failed, retrying in 3s.");
+            Thread.Sleep(3000);
         }
-    } catch (IOException ex) {
-        Console.WriteLine(ex.ToString());
+        isOperationSuccessfull = true;
     }
     return result;
 }
 
+
+
 string GetMd5(string file) {
     string result = "";
-    try {
-        using (var md5 = MD5.Create()) {
-            using (var stream = File.OpenRead(file)) {
-                var hash = md5.ComputeHash(stream);
-                result = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+    bool isOperationSuccessfull = false;
+    while (!isOperationSuccessfull) {
+        try {
+            using (var md5 = MD5.Create()) {
+                using (var stream = File.OpenRead(file)) {
+                    var hash = md5.ComputeHash(stream);
+                    result = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                }
             }
+        } catch {
+            LogOperation(Operation.FAIL, "Calculating file MD5 failed, retrying in 3s.");
+            Thread.Sleep(3000);
         }
-    } catch (Exception ex) {
-        Console.WriteLine(ex.ToString());
+        isOperationSuccessfull = true;
     }
-    if (result == "") LogOperation(Operation.MD5, $"Failed to calculate MD5 for file {file}.");
     return result;
 }
 
@@ -174,7 +207,8 @@ enum Operation {
     UPDATE,
     DELETE,
     MD5,
-    LOOP
+    LOOP,
+    FAIL
 }
 class FileData {
     public DateTime Timestamp { get; set; }
