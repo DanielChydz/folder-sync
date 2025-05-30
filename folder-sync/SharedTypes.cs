@@ -27,7 +27,7 @@
         public long Size { get; set; }
         public string Md5 { get; set; }
 
-        public FileData(DateTime timestamp, long size, string md5) {
+        public FileData(DateTime timestamp, long size, string md5 = "") {
             Timestamp = timestamp;
             Size = size;
             Md5 = md5;
