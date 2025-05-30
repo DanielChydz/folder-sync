@@ -71,5 +71,27 @@ namespace folder_sync {
                 isOperationSuccessful = true;
             }
         }
+
+        public static Dictionary<string, FileData> ScanFiles(bool isTargetDestination) {
+            var result = new Dictionary<string, FileData>();
+            bool isOperationSuccessful = false;
+            while (!isOperationSuccessful) {
+                try {
+                    string path = (isTargetDestination == true) ? Globals.destinationFolderPath : Globals.sourceFolderPath;
+                    foreach (string filePath in Directory.GetFiles(path, "*", SearchOption.AllDirectories)) {
+                        var fileInfo = new FileInfo(filePath);
+                        var md5 = "";
+                        if (Globals.doFullMd5Check) md5 = Utils.GetMd5(filePath);
+                        var fileData = new FileData(fileInfo.LastWriteTime, fileInfo.Length, md5);
+                        result[filePath] = fileData;
+                    }
+                } catch (Exception ex) {
+                    Utils.LogOperation(Operation.FAIL, $"Getting file info failed: {ex.Message}, retrying in 3s.");
+                    Thread.Sleep(3000);
+                }
+                isOperationSuccessful = true;
+            }
+            return result;
+        }
     }
 }
