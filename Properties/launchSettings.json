@@ -2,7 +2,7 @@
   "profiles": {
     "folder-sync": {
       "commandName": "Project",
-      "commandLineArgs": "\"C:\\Users\\chydz\\Documents\\Praca\\Veeam\\src folder\" \"C:\\Users\\chydz\\Documents\\Praca\\Veeam\\dest folder\" 15 \"C:\\Users\\chydz\\Documents\\Praca\\Veeam\\logs.txt\""
+      "commandLineArgs": "\"C:\\Users\\chydz\\Documents\\Praca\\Veeam\\src folder\" \"C:\\Users\\chydz\\Documents\\Praca\\Veeam\\dest folder\" 5 \"C:\\Users\\chydz\\Documents\\Praca\\Veeam\\logs.txt\" -verify"
     }
   }
 }

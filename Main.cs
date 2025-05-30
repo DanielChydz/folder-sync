@@ -1,11 +1,6 @@
-﻿using System.Security.Cryptography;
-using folder_sync;
-
-namespace folder_sync {
+﻿namespace folder_sync {
     class Program {
-
         static void Main(string[] args) {
-            bool isOperationSuccessful = false;
 
             //
             // setup code
@@ -23,7 +18,29 @@ namespace folder_sync {
                     "(2) destination folder path\n " +
                     "(3) time interval in seconds\n " +
                     "(4) log file path\n " +
-                    "(5) '-verify' for full md5 check (optional)");
+                    "(5) '-verify' for full md5 check (optional)\n" +
+                    "Press any key to continue.");
+                Console.ReadKey();
+                Environment.Exit(0);
+            }
+
+            bool isInt = int.TryParse(args[2], out int value);
+            if (!Directory.Exists(args[0])) {
+                Console.WriteLine("Please provide correct source folder path. Press any key to continue.");
+                Console.ReadKey();
+                Environment.Exit(0);
+            } else if (!Directory.Exists(args[1])) {
+                Console.WriteLine("Please provide correct destination folder path. Press any key to continue.");
+                Console.ReadKey();
+                Environment.Exit(0);
+            } else if (!isInt || int.Parse(args[2]) < 5 || int.Parse(args[2]) > 3600) {
+                Console.WriteLine("Please provide correct synchronization delay in seconds, [5-3600] seconds range. Press any key to continue.");
+                Console.ReadKey();
+                Environment.Exit(0);
+            } else if (args.Count() == 5 && args[4] != "-verify") {
+                Console.WriteLine("Please provide correct '-verify' argument. Press any key to continue.");
+                Console.ReadKey();
+                Environment.Exit(0);
             }
 
             Globals.sourceFolderPath = args[0];
@@ -35,6 +52,7 @@ namespace folder_sync {
                 Utils.LogOperation(Operation.INFO, "MD5 verification enabled. Synchronization is going to take longer.");
             }
 
+            bool isOperationSuccessful = false;
             // create log file if doesn't exist
             while (!isOperationSuccessful) {
                 try {
@@ -42,179 +60,89 @@ namespace folder_sync {
                         File.Create(Globals.logFilePath).Dispose();
                         Utils.LogOperation(Operation.CREATE, $"Created log file {Globals.logFilePath}");
                     }
+                    isOperationSuccessful = true;
                 } catch (Exception ex) {
-                    Utils.LogOperation(Operation.FAIL, $"Creating log file failed: {ex.Message}, retrying in 3s.");
+                    Utils.LogOperation(Operation.FAIL, $"Creating log file failed: {ex.Message} Retrying in 3s.");
                     Thread.Sleep(3000);
                 }
-                isOperationSuccessful = true;
             }
 
-            //
-            // program code
-            //
+            var pauseQuitKeysListener = new Thread(() => {
+                while (true) {
+                    var key = Console.ReadKey(true);
+                    if (key.Key == ConsoleKey.Q || key.Key == ConsoleKey.Escape) {
+                        Console.WriteLine("Exiting program.");
+                        Environment.Exit(0);
+                    } else if (key.Key == ConsoleKey.Spacebar || key.Key == ConsoleKey.P) {
+                        Globals.paused = !Globals.paused;
+                        Utils.LogOperation(Operation.INFO, Globals.paused ? "Program paused, press SPACE or P to resume" : "Program resumed, press SPACE or P to pause again.");
+                    }
+                }
+            });
+            pauseQuitKeysListener.IsBackground = true;
+            pauseQuitKeysListener.Start();
 
+            //
             // main loop
+            //
+            Utils.LogOperation(Operation.INFO, $"Program started. Press Q or ESC to quit, P or SPACE to pause/resume.");
             while (true) {
+                while (Globals.paused) Thread.Sleep(100);
                 Utils.LogOperation(Operation.INFO, $"Synchronization started.");
 
                 Globals.updatedSourceFileMap = Utils.ScanFiles(false);
                 Globals.destinationFileMap = Utils.ScanFiles(true);
                 bool wasSomethingDone = false;
 
-                // check files
-                foreach (string filePath in Globals.updatedSourceFileMap.Keys) {
-                    string relativePath = Path.GetRelativePath(Globals.sourceFolderPath, filePath);
-                    string targetPath = Path.Combine(Globals.destinationFolderPath, relativePath);
-                    bool shouldCopy = false;
+                // process files - copy/update
+                foreach (string sourceFilePath in Globals.updatedSourceFileMap.Keys) {
+                    while (Globals.paused) Thread.Sleep(100);
+                    string relativePath = Path.GetRelativePath(Globals.sourceFolderPath, sourceFilePath);
+                    string destFilePath = Path.Combine(Globals.destinationFolderPath, relativePath);
 
-                    //if source already contained file
-                    if (Globals.sourceFileMap.ContainsKey(filePath)) {
-                        // if file timestamp and size are the same
-                        if (!Globals.doFullMd5Check && (Globals.updatedSourceFileMap[filePath].Timestamp == Globals.sourceFileMap[filePath].Timestamp && Globals.updatedSourceFileMap[filePath].Size == Globals.sourceFileMap[filePath].Size)) {
-                            // if destination doesn't contain file OR contains file but size or time differ
-                            if (!Globals.destinationFileMap.ContainsKey(targetPath) || (Globals.destinationFileMap[targetPath].Timestamp != Globals.sourceFileMap[filePath].Timestamp || Globals.destinationFileMap[targetPath].Size != Globals.sourceFileMap[filePath].Size)) {
-                                shouldCopy = true;
-                            }
-                            // if source contained file but timestamp or size differs
-                        } else if (!Globals.doFullMd5Check) {
-                            shouldCopy = true;
-                            // if md5 verification is enabled
-                        } else if (Globals.destinationFileMap.ContainsKey(targetPath)) {
-                            if (Globals.updatedSourceFileMap[filePath].Md5 != Globals.destinationFileMap[targetPath].Md5) {
-                                shouldCopy = true;
-                            }
-                        }
-                        // if file doesn't exist at destination OR contains file but size or time differ
-                    } else if (!Globals.destinationFileMap.ContainsKey(targetPath) || (Globals.destinationFileMap[targetPath].Timestamp != Globals.updatedSourceFileMap[filePath].Timestamp || Globals.destinationFileMap[targetPath].Size != Globals.updatedSourceFileMap[filePath].Size)) {
-                        shouldCopy = true;
-                    }
-
-                    // copy file
-                    if (shouldCopy) {
-                        isOperationSuccessful = false;
-                        while (!isOperationSuccessful) {
-                            try {
-                                if (!Directory.Exists(Path.GetDirectoryName(targetPath)!)) {
-                                    Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-                                    Utils.LogOperation(Operation.CREATE, $"Created folder \"{Path.GetDirectoryName(targetPath)}\".");
-                                }
-                                if (!File.Exists(targetPath)) {
-                                    File.Copy(filePath, targetPath);
-                                    Utils.LogOperation(Operation.COPY, $"Copied file \"{filePath}\" to \"{targetPath}\".");
-                                } else {
-                                    File.Copy(filePath, targetPath, true);
-                                    Utils.LogOperation(Operation.UPDATE, $"Updated file \"{targetPath}\".");
-                                }
-                            } catch (Exception ex) {
-                                Utils.LogOperation(Operation.FAIL, $"Creating folder or copying file failed: {ex.Message}, retrying in 3s.");
-                                Thread.Sleep(3000);
-                            }
-                            isOperationSuccessful = true;
-                        }
-                        if (!wasSomethingDone) wasSomethingDone = true;
-                    }
-                }
-
-                // Copy empty folders from source to destination
-                while (!isOperationSuccessful) {
-                    try {
-                        foreach (string folder in Directory.GetDirectories(Globals.sourceFolderPath, "*", SearchOption.AllDirectories)) {
-                            if (Utils.IsDirectoryEmpty(folder)) {
-                                string relativePath = folder.Substring(Globals.sourceFolderPath.Length).TrimStart(Path.DirectorySeparatorChar);
-                                string newFolder = Path.Combine(Globals.destinationFolderPath, relativePath);
-
-                                if (!Directory.Exists(newFolder)) {
-                                    Directory.CreateDirectory(newFolder);
-                                    Utils.LogOperation(Operation.CREATE, $"Created folder \"{newFolder}\".");
-                                    wasSomethingDone = true;
-                                }
-                            }
-                        }
-                        isOperationSuccessful = true;
-                    } catch (Exception ex) {
-                        Utils.LogOperation(Operation.FAIL, $"Creating folder failed: {ex.Message}, retrying in 3s.");
-                        Thread.Sleep(3000);
-                    }
-                }
-
-                // delete files
-                foreach (string filePath in Globals.destinationFileMap.Keys) {
-                    string relativePath = Path.GetRelativePath(Globals.destinationFolderPath, filePath);
-                    string targetPath = Path.Combine(Globals.sourceFolderPath, relativePath);
-                    // if doesn't exist in source, but exists in destination
-                    if (!Globals.updatedSourceFileMap.ContainsKey(targetPath)) {
-                        isOperationSuccessful = false;
-                        while (!isOperationSuccessful) {
-                            try {
-                                File.Delete(filePath);
-                                Utils.LogOperation(Operation.DELETE, $"Deleted file \"{filePath}\".");
-                                if (!wasSomethingDone) wasSomethingDone = true;
-                            } catch (Exception ex) {
-                                Utils.LogOperation(Operation.FAIL, $"Deleting folder or file failed: {ex.Message}, retrying in 3s.");
-                                Thread.Sleep(3000);
-                            }
-                            isOperationSuccessful = true;
+                    if (Utils.ShouldCopyFile(sourceFilePath, destFilePath)) {
+                        bool copyResult = Utils.CopyFile(sourceFilePath, destFilePath);
+                        if (copyResult && !wasSomethingDone) {
+                            wasSomethingDone = true;
                         }
                     }
                 }
 
-                // empty folder handling
-                // copy empty folders
-                isOperationSuccessful = false;
-                while (!isOperationSuccessful) {
-                    try {
-                        foreach (string folder in Directory.GetDirectories(Globals.sourceFolderPath, "*", SearchOption.AllDirectories)) {
-                            string[] files = Directory.GetFiles(folder);
-                            string[] subFolders = Directory.GetDirectories(folder);
+                // process files - delete
+                foreach (string destFilePath in Globals.destinationFileMap.Keys) {
+                    while (Globals.paused) Thread.Sleep(100);
+                    string relativePath = Path.GetRelativePath(Globals.destinationFolderPath, destFilePath);
+                    string sourceFilePath = Path.Combine(Globals.sourceFolderPath, relativePath);
 
-                            if (files.Length == 0 && subFolders.Length == 0) {
-                                string relativePath = folder.Substring(Globals.sourceFolderPath.Length).TrimStart(Path.DirectorySeparatorChar);
-                                string newFolder = Path.Combine(Globals.destinationFolderPath, relativePath);
-
-                                if (!Directory.Exists(newFolder)) {
-                                    Directory.CreateDirectory(newFolder);
-                                    Utils.LogOperation(Operation.CREATE, $"Created folder \"{Path.GetDirectoryName(newFolder)}\".");
-                                }
-                            }
+                    if (!Globals.updatedSourceFileMap.ContainsKey(sourceFilePath)) {
+                        bool deleteResult = Utils.DeleteFile(destFilePath);
+                        if (deleteResult && !wasSomethingDone) {
+                            wasSomethingDone = true;
                         }
-                    } catch (Exception ex) {
-                        Utils.LogOperation(Operation.FAIL, $"Creating folder failed: {ex.Message}, retrying in 3s.");
-                        Thread.Sleep(3000);
                     }
-                    isOperationSuccessful = true;
                 }
 
-                // delete empty folders
-                // Delete empty folders from destination that don't exist in source
-                isOperationSuccessful = false;
-                while (!isOperationSuccessful) {
-                    try {
-                        foreach (string folder in Directory.GetDirectories(Globals.destinationFolderPath, "*", SearchOption.AllDirectories)) {
-                            string relativePath = folder.Substring(Globals.destinationFolderPath.Length).TrimStart(Path.DirectorySeparatorChar);
-                            string folderPath = Path.Combine(Globals.sourceFolderPath, relativePath);
-
-                            if (!Directory.Exists(folderPath)) {
-                                string[] destFiles = Directory.GetFiles(folder);
-                                string[] destSubFolders = Directory.GetDirectories(folder);
-
-                                if (destFiles.Length == 0 && destSubFolders.Length == 0) {
-                                    Directory.Delete(folder, false);
-                                    Utils.LogOperation(Operation.DELETE, $"Deleted empty folder \"{folder}\".");
-                                }
-                            }
-                        }
-                        isOperationSuccessful = true;
-                    } catch (Exception ex) {
-                        Utils.LogOperation(Operation.FAIL, $"Deleting folder failed: {ex.Message}, retrying in 3s.");
-                        Thread.Sleep(3000);
-                    }
+                // process empty folders
+                bool folderSyncResult = Utils.SyncEmptyFolders();
+                if (folderSyncResult && !wasSomethingDone) {
+                    wasSomethingDone = true;
                 }
 
                 Globals.sourceFileMap = new Dictionary<string, FileData>(Globals.updatedSourceFileMap);
 
+                while (!Globals.isSyncFinished) ;
                 if (!wasSomethingDone) Utils.LogOperation(Operation.INFO, "No changes, skipping.");
                 Utils.LogOperation(Operation.INFO, $"Waiting {Globals.syncIntervalSec} seconds before next synchronization.");
-                Thread.Sleep(Globals.syncIntervalSec * 1000);
+
+                int timePassed = 0;
+                while (timePassed < Globals.syncIntervalSec * 1000) {
+                    if (Globals.paused) {
+                        Thread.Sleep(100);
+                        continue;
+                    }
+                    Thread.Sleep(100);
+                    timePassed += 100;
+                }
             }
 
 

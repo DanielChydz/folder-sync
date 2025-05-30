@@ -1,6 +1,4 @@
-﻿using folder_sync;
-
-namespace folder_sync {
+﻿namespace folder_sync {
     public enum Operation {
         COPY,
         CREATE,
@@ -20,6 +18,8 @@ namespace folder_sync {
         public static string destinationFolderPath = "";
         public static string logFilePath = "";
         public static bool doFullMd5Check = false;
+        public static bool isSyncFinished = true;
+        public static bool paused = false;
     }
     
     public class FileData {
