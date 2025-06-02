@@ -37,3 +37,11 @@ Directory paths have to be inside quotation marks.
 3. Console rarely doesn't apply new line when printing logs.
 4. When not using `-verify` for MD5, if the file has the same timestamp and size, but different content, it won't be copied/updated.
 5. When copying large files, the program becomes unresponsive until the file is fully copied.
+
+
+## Could be improved
+1. Code structure – some utility functions and the Main method could be separated into clearer modules. Global state (Globals) could also be better encapsulated.
+2. Testing – more unit tests could be added for edge cases, including error scenarios and full MD5 logic.
+3. Threading – long file copy operations block the main thread. This could be improved with async I/O or background workers.
+4. Edge case handling – some lookups (e.g. in hash maps) could be more defensive using TryGetValue instead of ContainsKey + indexer. Other minor logic edge cases could also use better coverage.
+5. Code duplication (DRY rule) – some repetitive logic could be moved into reusable methods.
